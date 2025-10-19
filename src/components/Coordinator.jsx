@@ -5,30 +5,23 @@ const Coordinator = () => {
   const navigate = useNavigate();
   
   const [sections, setSections] = useState(["A", "B", "C"]);
-  const [rooms, setRooms] = useState(["Lab 201", "Room 101", "Room 102", "Room 103"]);
-  const [newRoom, setNewRoom] = useState("");
   
-  // All 6 faculties with MANDATORY names
+  // Separate room management for theory and lab
+  const [theoryRooms, setTheoryRooms] = useState([]);
+  const [labRooms, setLabRooms] = useState([]);
+  const [newTheoryRoom, setNewTheoryRoom] = useState("");
+  const [newLabRoom, setNewLabRoom] = useState("");
+  
   const [facultyList, setFacultyList] = useState([
-    { id: "faculty_001", name: "Premi" },
-    { id: "faculty_002", name: "Pomri" },
-    { id: "faculty_003", name: "Chandra" },
-    { id: "faculty_004", name: "Podja" },
-    { id: "faculty_005", name: "Zoya" },
-    { id: "faculty_006", name: "Guna" }
+    { id: "faculty_001", name: "" },
+    { id: "faculty_002", name: "" },
+    { id: "faculty_003", name: "" },
+    { id: "faculty_004", name: "" },
+    { id: "faculty_005", name: "" },
+    { id: "faculty_006", name: "" }
   ]);
 
-  // Default subjects + allow custom
-  const [subjects, setSubjects] = useState([
-    { name: "Programming", hasLab: true },
-    { name: "Data Structures", hasLab: true },
-    { name: "Operating Systems", hasLab: true },
-    { name: "DBMS", hasLab: true },
-    { name: "Computer Networks", hasLab: true },
-    { name: "Python", hasLab: true },
-    { name: "Java", hasLab: true }
-  ]);
-
+  const [subjects, setSubjects] = useState([]);
   const [newSubjectInput, setNewSubjectInput] = useState("");
 
   const [timingSettings, setTimingSettings] = useState({
@@ -100,49 +93,82 @@ const Coordinator = () => {
     return slots;
   };
 
-  // Conflict detection
-  const detectConflicts = (timetable = timetableData) => {
-    const teacherConflicts = [];
+  // Enhanced Conflict detection with room conflicts
+  const detectConflictsWithRooms = (timetable) => {
+    const conflicts = [];
     const teacherTimeSlots = {};
+    const roomTimeSlots = {};
 
     timetable.forEach(daySchedule => {
       daySchedule.slots.forEach(slot => {
         if (slot.type !== 'break') {
           Object.entries(slot.sections).forEach(([section, classInfo]) => {
-            if (classInfo.teacher && classInfo.teacher !== 'BREAK') {
-              const key = `${classInfo.teacher}-${daySchedule.day}-${slot.time}`;
-              if (teacherTimeSlots[key]) {
-                teacherConflicts.push({
+            if (classInfo.teacher && classInfo.teacher !== 'BREAK' && classInfo.teacher !== 'FREE') {
+              // Teacher conflict detection
+              const teacherKey = `${classInfo.teacher}-${daySchedule.day}-${slot.time}`;
+              if (teacherTimeSlots[teacherKey]) {
+                conflicts.push({
+                  type: 'TEACHER_CONFLICT',
                   teacher: classInfo.teacher,
                   day: daySchedule.day,
                   time: slot.time,
-                  section1: teacherTimeSlots[key],
+                  section1: teacherTimeSlots[teacherKey],
                   section2: section,
                   subject: classInfo.subject
                 });
               }
-              teacherTimeSlots[key] = section;
+              teacherTimeSlots[teacherKey] = section;
+
+              // Room conflict detection
+              if (classInfo.room && classInfo.room !== 'NO ROOM AVAILABLE' && classInfo.room !== 'NO ROOM') {
+                const roomKey = `${classInfo.room}-${daySchedule.day}-${slot.time}`;
+                if (roomTimeSlots[roomKey]) {
+                  conflicts.push({
+                    type: 'ROOM_CONFLICT',
+                    room: classInfo.room,
+                    day: daySchedule.day,
+                    time: slot.time,
+                    section1: roomTimeSlots[roomKey],
+                    section2: section,
+                    subject: classInfo.subject
+                  });
+                }
+                roomTimeSlots[roomKey] = section;
+              }
             }
           });
         }
       });
     });
 
-    setConflicts(teacherConflicts);
-    return teacherConflicts;
+    setConflicts(conflicts);
+    return conflicts;
   };
 
-  // Add new room
-  const addNewRoom = () => {
-    if (newRoom.trim() && !rooms.includes(newRoom.trim())) {
-      setRooms([...rooms, newRoom.trim()]);
-      setNewRoom("");
+  // Add new theory room
+  const addNewTheoryRoom = () => {
+    if (newTheoryRoom.trim() && !theoryRooms.includes(newTheoryRoom.trim())) {
+      setTheoryRooms([...theoryRooms, newTheoryRoom.trim()]);
+      setNewTheoryRoom("");
     }
   };
 
-  // Remove room
-  const removeRoom = (roomToRemove) => {
-    setRooms(rooms.filter(room => room !== roomToRemove));
+  // Add new lab room
+  const addNewLabRoom = () => {
+    if (newLabRoom.trim() && !labRooms.includes(newLabRoom.trim())) {
+      setLabRooms([...labRooms, newLabRoom.trim()]);
+      setNewLabRoom("");
+    }
+  };
+
+  // Remove theory room
+  const removeTheoryRoom = (roomToRemove) => {
+    setTheoryRooms(theoryRooms.filter(room => room !== roomToRemove));
+  };
+
+  // Remove lab room
+  const removeLabRoom = (roomToRemove) => {
+    setLabRooms(labRooms.filter(room => room !== roomToRemove));
   };
 
   // Add multiple subjects
@@ -152,7 +178,7 @@ const Coordinator = () => {
       
       const newSubjects = subjectNames.map(name => ({
         name: name,
-        hasLab: true // Default has lab
+        hasLab: true
       }));
 
       setSubjects([...subjects, ...newSubjects]);
@@ -177,11 +203,33 @@ const Coordinator = () => {
   // Get faculty display name
   const getFacultyDisplayName = (facultyId) => {
     const faculty = facultyList.find(f => f.id === facultyId);
-    return faculty ? faculty.name : facultyId;
+    return faculty && faculty.name ? faculty.name : facultyId;
   };
 
-  // ZERO-CONFLICT Timetable Generation
+  // ZERO-CONFLICT Timetable Generation with Room Conflict Prevention
   const generateTimetable = () => {
+    // Validation
+    if (subjects.length === 0) {
+      alert("Please add at least one subject!");
+      return;
+    }
+
+    if (theoryRooms.length === 0) {
+      alert("Please add at least one theory room!");
+      return;
+    }
+
+    if (labRooms.length === 0) {
+      alert("Please add at least one lab room!");
+      return;
+    }
+
+    const emptyFaculty = facultyList.find(f => !f.name.trim());
+    if (emptyFaculty) {
+      alert(`Please enter name for ${emptyFaculty.id}`);
+      return;
+    }
+
     const days = ["Monday", "Tuesday", "Wednesday", "Thursday", "Friday"];
     const timeSlots = generateTimeSlots();
     
@@ -193,26 +241,32 @@ const Coordinator = () => {
       facultyWorkload[faculty.id] = 0;
     });
 
-    // Track teacher assignments to avoid conflicts
-    const teacherAssignments = {};
-    days.forEach(day => {
-      teacherAssignments[day] = {};
-      timeSlots.forEach(slot => {
-        teacherAssignments[day][slot.time] = new Set();
+    // Track teacher availability
+    const teacherAvailability = {};
+    facultyList.forEach(faculty => {
+      teacherAvailability[faculty.id] = {};
+      days.forEach(day => {
+        teacherAvailability[faculty.id][day] = {};
+        timeSlots.forEach(slot => {
+          teacherAvailability[faculty.id][day][slot.time] = true;
+        });
       });
     });
 
-    // Track lab sessions per subject per week
-    const weeklyLabSessions = {};
-    subjects.forEach(subject => {
-      weeklyLabSessions[subject.name] = 0;
+    // Track room availability - NEW: Prevent room conflicts
+    const roomAvailability = {};
+    days.forEach(day => {
+      roomAvailability[day] = {};
+      timeSlots.forEach(slot => {
+        roomAvailability[day][slot.time] = {
+          theory: [...theoryRooms], // Available theory rooms for this time slot
+          lab: [...labRooms]        // Available lab rooms for this time slot
+        };
+      });
     });
 
     days.forEach((day, dayIndex) => {
       const daySchedule = { day, slots: [] };
-      
-      // Track lab sessions for this day
-      const dailyLabSessions = {};
 
       timeSlots.forEach((timeSlot, slotIndex) => {
         const slot = { 
@@ -220,104 +274,105 @@ const Coordinator = () => {
           type: timeSlot.type,
           sections: {} 
         };
-        
-        // Get available teachers for this time slot
-        const getAvailableTeachers = (day, time) => {
-          return facultyList.filter(faculty => 
-            !teacherAssignments[day][time].has(faculty.id)
-          );
-        };
-
-        // Assign teacher to a class
-        const assignTeacherToClass = (day, time, subjectName) => {
-          const availableTeachers = getAvailableTeachers(day, time);
-          if (availableTeachers.length === 0) return null;
-
-          // Choose a teacher with least workload
-          availableTeachers.sort((a, b) => facultyWorkload[a.id] - facultyWorkload[b.id]);
-          const teacher = availableTeachers[0];
-          
-          // Mark teacher as assigned for this time
-          teacherAssignments[day][time].add(teacher.id);
-          facultyWorkload[teacher.id]++;
-          
-          return teacher.id;
-        };
-
-        // Get appropriate room
-        const getRoom = (section, isLab = false) => {
-          if (isLab) {
-            return rooms.find(room => room.includes('Lab')) || rooms[0];
-          }
-          return rooms[(sections.indexOf(section) + 1) % rooms.length];
-        };
 
         sections.forEach(section => {
-          let subject, teacher, room, isLabSession = false;
-          
+          let subject, teacher, room;
+
           if (timeSlot.type === 'break') {
             subject = 'BREAK';
             teacher = '';
             room = '';
-          } else if (timeSlot.type === 'lab') {
-            // LAB SESSION: Assign lab for subjects that have labs
-            const subjectsWithLabs = subjects.filter(sub => sub.hasLab && weeklyLabSessions[sub.name] < 2);
-            
-            if (subjectsWithLabs.length > 0) {
-              // Find subject for this section's lab
-              const subjectIndex = (dayIndex + sections.indexOf(section)) % subjectsWithLabs.length;
-              const labSubject = subjectsWithLabs[subjectIndex];
-              
-              subject = `${labSubject.name} Lab`;
-              teacher = assignTeacherToClass(day, timeSlot.time, labSubject.name);
-              room = getRoom(section, true);
-              isLabSession = true;
-              
-              if (teacher) {
-                weeklyLabSessions[labSubject.name]++;
-              }
-            }
-            
-            // If no lab assigned, assign theory class
-            if (!teacher) {
-              const theorySubjects = subjects;
-              const subjectIndex = (slotIndex + sections.indexOf(section)) % theorySubjects.length;
-              subject = theorySubjects[subjectIndex].name;
-              teacher = assignTeacherToClass(day, timeSlot.time, subject);
-              room = getRoom(section, false);
-            }
           } else {
-            // THEORY CLASS - Always assign teacher
-            const availableSubjects = subjects;
-            const subjectIndex = (slotIndex + dayIndex + sections.indexOf(section)) % availableSubjects.length;
-            subject = availableSubjects[subjectIndex].name;
-            teacher = assignTeacherToClass(day, timeSlot.time, subject);
-            room = getRoom(section, false);
-          }
+            // Find available teacher for this time slot
+            const availableTeachers = facultyList.filter(faculty => 
+              teacherAvailability[faculty.id][day][timeSlot.time]
+            );
 
-          // Fallback if no teacher assigned
-          if (!teacher && timeSlot.type !== 'break') {
-            const availableTeachers = getAvailableTeachers(day, timeSlot.time);
             if (availableTeachers.length > 0) {
-              teacher = availableTeachers[0].id;
-              teacherAssignments[day][timeSlot.time].add(teacher);
+              // Choose teacher with least workload
+              availableTeachers.sort((a, b) => facultyWorkload[a.id] - facultyWorkload[b.id]);
+              const selectedTeacher = availableTeachers[0];
+              
+              // Select subject - simple round-robin
+              const subjectIndex = (dayIndex + slotIndex + sections.indexOf(section)) % subjects.length;
+              const selectedSubject = subjects[subjectIndex];
+              
+              subject = timeSlot.type === 'lab' && selectedSubject.hasLab 
+                ? `${selectedSubject.name} Lab` 
+                : selectedSubject.name;
+              
+              teacher = selectedTeacher.id;
+              
+              // NEW: Smart room assignment with conflict prevention
+              if (timeSlot.type === 'lab') {
+                // Get available lab rooms for this time slot
+                const availableLabRooms = roomAvailability[day][timeSlot.time].lab;
+                if (availableLabRooms.length > 0) {
+                  // Use round-robin to distribute lab rooms
+                  room = availableLabRooms[sections.indexOf(section) % availableLabRooms.length];
+                  // Remove assigned room from availability for this time slot
+                  roomAvailability[day][timeSlot.time].lab = availableLabRooms.filter(r => r !== room);
+                } else {
+                  // No lab rooms available - use theory room as fallback
+                  const availableTheoryRooms = roomAvailability[day][timeSlot.time].theory;
+                  room = availableTheoryRooms.length > 0 
+                    ? availableTheoryRooms[0] 
+                    : 'NO ROOM AVAILABLE';
+                  if (availableTheoryRooms.length > 0) {
+                    roomAvailability[day][timeSlot.time].theory = availableTheoryRooms.filter(r => r !== room);
+                  }
+                }
+              } else {
+                // Theory class - get available theory rooms
+                const availableTheoryRooms = roomAvailability[day][timeSlot.time].theory;
+                if (availableTheoryRooms.length > 0) {
+                  // Use round-robin to distribute theory rooms
+                  room = availableTheoryRooms[sections.indexOf(section) % availableTheoryRooms.length];
+                  // Remove assigned room from availability for this time slot
+                  roomAvailability[day][timeSlot.time].theory = availableTheoryRooms.filter(r => r !== room);
+                } else {
+                  // No theory rooms available - use lab room as fallback
+                  const availableLabRooms = roomAvailability[day][timeSlot.time].lab;
+                  room = availableLabRooms.length > 0 
+                    ? availableLabRooms[0] 
+                    : 'NO ROOM AVAILABLE';
+                  if (availableLabRooms.length > 0) {
+                    roomAvailability[day][timeSlot.time].lab = availableLabRooms.filter(r => r !== room);
+                  }
+                }
+              }
+
+              // Update tracking
+              teacherAvailability[teacher][day][timeSlot.time] = false;
               facultyWorkload[teacher]++;
             } else {
-              // Last resort - use first faculty
-              teacher = facultyList[0].id;
+              // No available teacher - assign FREE period
+              subject = 'FREE';
+              teacher = '';
+              
+              // Still assign a room for FREE periods to maintain structure
+              if (timeSlot.type === 'lab') {
+                const availableLabRooms = roomAvailability[day][timeSlot.time].lab;
+                room = availableLabRooms.length > 0 ? availableLabRooms[0] : 'NO ROOM';
+                if (availableLabRooms.length > 0) {
+                  roomAvailability[day][timeSlot.time].lab = availableLabRooms.filter(r => r !== room);
+                }
+              } else {
+                const availableTheoryRooms = roomAvailability[day][timeSlot.time].theory;
+                room = availableTheoryRooms.length > 0 ? availableTheoryRooms[0] : 'NO ROOM';
+                if (availableTheoryRooms.length > 0) {
+                  roomAvailability[day][timeSlot.time].theory = availableTheoryRooms.filter(r => r !== room);
+                }
+              }
             }
           }
 
-          slot.sections[section] = { 
-            subject, 
-            teacher: teacher || '', 
-            room: room || getRoom(section, isLabSession)
-          };
+          slot.sections[section] = { subject, teacher, room };
         });
-        
+
         daySchedule.slots.push(slot);
       });
-      
+
       weeklyTimetable.push(daySchedule);
     });
 
@@ -326,26 +381,36 @@ const Coordinator = () => {
     weeklyTimetable.forEach(daySchedule => {
       daySchedule.slots.forEach(slot => {
         Object.entries(slot.sections).forEach(([section, classInfo]) => {
-          flatTimetable.push({
-            day: daySchedule.day,
-            time: slot.time,
-            section: `Section ${section}`,
-            room: classInfo.room,
-            subject: classInfo.subject,
-            teacher: classInfo.teacher,
-            type: slot.type
-          });
+          if (classInfo.subject !== 'BREAK' && classInfo.subject !== 'FREE') {
+            flatTimetable.push({
+              day: daySchedule.day,
+              time: slot.time,
+              section: `Section ${section}`,
+              room: classInfo.room,
+              subject: classInfo.subject,
+              teacher: classInfo.teacher,
+              type: slot.type
+            });
+          }
         });
       });
     });
 
+    // Save faculty names for faculty view
+    const facultyNames = {};
+    facultyList.forEach(faculty => {
+      facultyNames[faculty.id] = faculty.name;
+    });
+
     // Check for conflicts
-    const detectedConflicts = detectConflicts(weeklyTimetable);
+    const detectedConflicts = detectConflictsWithRooms(weeklyTimetable);
 
     // Save to localStorage
     localStorage.setItem("departmentTimetable", JSON.stringify(flatTimetable));
     localStorage.setItem("weeklyTimetable", JSON.stringify(weeklyTimetable));
+    localStorage.setItem("facultyNames", JSON.stringify(facultyNames));
     localStorage.setItem("facultyList", JSON.stringify(facultyList));
+    
     setTimetableData(weeklyTimetable);
     setFacultyHours(facultyWorkload);
     
@@ -366,6 +431,21 @@ const Coordinator = () => {
     setSubjects(newSubjects);
   };
 
+  // Manual conflict check function
+  const handleManualConflictCheck = () => {
+    if (timetableData.length === 0) {
+      alert("No timetable generated yet!");
+      return;
+    }
+    const detectedConflicts = detectConflictsWithRooms(timetableData);
+    
+    if (detectedConflicts.length > 0) {
+      alert(`Found ${detectedConflicts.length} conflicts!`);
+    } else {
+      alert("✅ No conflicts found! Perfect timetable.");
+    }
+  };
+
   return (
     <div className="min-h-screen bg-gradient-to-br from-blue-50 to-indigo-100 p-6">
       <div className="max-w-7xl mx-auto">
@@ -373,8 +453,8 @@ const Coordinator = () => {
         <div className="bg-white rounded-xl shadow-lg p-6 mb-6">
           <div className="flex justify-between items-center">
             <div>
-              <h1 className="text-3xl font-bold text-gray-800">MCA Timetable Generator</h1>
-              <p className="text-gray-600 mt-2">ZERO CONFLICTS - All classes have teachers</p>
+              <h1 className="text-3xl font-bold text-gray-800">Timetable Generator</h1>
+              <p className="text-gray-600 mt-2">Simplified Room & Lab Management</p>
             </div>
             <button
               onClick={() => navigate("/")}
@@ -389,9 +469,9 @@ const Coordinator = () => {
         <div className="bg-white rounded-xl shadow-lg p-6 mb-6">
           <h2 className="text-xl font-semibold mb-4">Timetable Configuration</h2>
           
-          {/* Faculty Names - MANDATORY */}
+          {/* Faculty Names */}
           <div className="mb-6 p-4 bg-yellow-50 rounded-lg">
-            <h3 className="text-lg font-semibold mb-3">Faculty Names (Mandatory)</h3>
+            <h3 className="text-lg font-semibold mb-3">Faculty Names (Required)</h3>
             <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-3">
               {facultyList.map(faculty => (
                 <div key={faculty.id} className="flex items-center gap-2">
@@ -423,38 +503,82 @@ const Coordinator = () => {
             />
           </div>
 
-          {/* Rooms Input */}
+          {/* SIMPLIFIED ROOM MANAGEMENT */}
           <div className="mb-6">
-            <label className="block text-sm font-medium text-gray-700 mb-2">
-              Available Rooms (Lab 201 is for labs)
-            </label>
-            <div className="flex gap-2 mb-3">
-              <input
-                type="text"
-                value={newRoom}
-                onChange={(e) => setNewRoom(e.target.value)}
-                className="flex-1 border border-gray-300 rounded-lg p-3"
-                placeholder="Add new room (e.g., Room 104)"
-              />
-              <button
-                onClick={addNewRoom}
-                className="bg-green-500 text-white px-4 py-2 rounded-lg hover:bg-green-600"
-              >
-                Add Room
-              </button>
+            <h3 className="text-lg font-semibold mb-4">Room Management</h3>
+            
+            {/* Theory Rooms Section */}
+            <div className="mb-4 p-4 bg-blue-50 rounded-lg">
+              <h4 className="font-semibold mb-3 text-blue-800">🏫 Theory Classrooms</h4>
+              <p className="text-sm text-blue-600 mb-3">Add regular classrooms for theory classes</p>
+              <div className="flex gap-2 mb-3">
+                <input
+                  type="text"
+                  value={newTheoryRoom}
+                  onChange={(e) => setNewTheoryRoom(e.target.value)}
+                  className="flex-1 border border-gray-300 rounded-lg p-3"
+                  placeholder="Enter theory room (e.g., Room 101)"
+                />
+                <button
+                  onClick={addNewTheoryRoom}
+                  className="bg-blue-500 text-white px-4 py-2 rounded-lg hover:bg-blue-600"
+                >
+                  Add
+                </button>
+              </div>
+              <div className="flex flex-wrap gap-2">
+                {theoryRooms.map((room, index) => (
+                  <div key={index} className="bg-blue-100 text-blue-800 px-3 py-2 rounded-lg flex items-center gap-2">
+                    🏫 {room}
+                    <button
+                      onClick={() => removeTheoryRoom(room)}
+                      className="text-red-500 hover:text-red-700 ml-2"
+                    >
+                      ×
+                    </button>
+                  </div>
+                ))}
+                {theoryRooms.length === 0 && (
+                  <div className="text-gray-500 text-sm">No theory rooms added yet</div>
+                )}
+              </div>
             </div>
-            <div className="flex flex-wrap gap-2">
-              {rooms.map((room, index) => (
-                <div key={index} className="bg-blue-100 text-blue-800 px-3 py-1 rounded-full flex items-center gap-2">
-                  {room}
-                  <button
-                    onClick={() => removeRoom(room)}
-                    className="text-red-500 hover:text-red-700"
-                  >
-                    ×
-                  </button>
-                </div>
-              ))}
+
+            {/* Lab Rooms Section */}
+            <div className="p-4 bg-green-50 rounded-lg">
+              <h4 className="font-semibold mb-3 text-green-800">🔬 Lab Rooms</h4>
+              <p className="text-sm text-green-600 mb-3">Add laboratory rooms for practical classes</p>
+              <div className="flex gap-2 mb-3">
+                <input
+                  type="text"
+                  value={newLabRoom}
+                  onChange={(e) => setNewLabRoom(e.target.value)}
+                  className="flex-1 border border-gray-300 rounded-lg p-3"
+                  placeholder="Enter lab room (e.g., Lab 201)"
+                />
+                <button
+                  onClick={addNewLabRoom}
+                  className="bg-green-500 text-white px-4 py-2 rounded-lg hover:bg-green-600"
+                >
+                  Add
+                </button>
+              </div>
+              <div className="flex flex-wrap gap-2">
+                {labRooms.map((room, index) => (
+                  <div key={index} className="bg-green-100 text-green-800 px-3 py-2 rounded-lg flex items-center gap-2">
+                    🔬 {room}
+                    <button
+                      onClick={() => removeLabRoom(room)}
+                      className="text-red-500 hover:text-red-700 ml-2"
+                    >
+                      ×
+                    </button>
+                  </div>
+                ))}
+                {labRooms.length === 0 && (
+                  <div className="text-gray-500 text-sm">No lab rooms added yet</div>
+                )}
+              </div>
             </div>
           </div>
 
@@ -486,9 +610,9 @@ const Coordinator = () => {
             </div>
           </div>
 
-          {/* Subjects */}
+          {/* Subjects - KEEPING YOUR EXISTING SUBJECT SCENARIOS */}
           <div className="mb-6">
-            <h3 className="text-lg font-semibold mb-4">Subjects (Any teacher can teach any subject)</h3>
+            <h3 className="text-lg font-semibold mb-4">Subjects (Add all subjects here)</h3>
             
             {/* Bulk Add Subjects */}
             <div className="mb-4 p-4 bg-gray-50 rounded-lg">
@@ -501,7 +625,7 @@ const Coordinator = () => {
                   value={newSubjectInput}
                   onChange={(e) => setNewSubjectInput(e.target.value)}
                   className="flex-1 border border-gray-300 rounded-lg p-3"
-                  placeholder="subject1, subject2, subject3, subject4"
+                  placeholder="Programming, Data Structures, DBMS, OS, Networks"
                 />
                 <button
                   onClick={addMultipleSubjects}
@@ -513,40 +637,46 @@ const Coordinator = () => {
             </div>
 
             {/* Subjects List */}
-            <div className="space-y-3">
-              {subjects.map((subject, index) => (
-                <div key={index} className="grid grid-cols-1 md:grid-cols-4 gap-3 items-center border p-3 rounded">
-                  <div className="font-medium">{subject.name}</div>
-                  
-                  <select
-                    value={subject.hasLab}
-                    onChange={(e) => updateSubject(index, 'hasLab', e.target.value)}
-                    className="border rounded p-2"
-                  >
-                    <option value={true}>Has Lab</option>
-                    <option value={false}>No Lab</option>
-                  </select>
-                  
-                  <div className="text-sm text-gray-600">
-                    {subject.hasLab ? "2 lab sessions/week" : "Theory only"}
+            {subjects.length === 0 ? (
+              <div className="text-center py-8 text-gray-500">
+                No subjects added yet. Add subjects above.
+              </div>
+            ) : (
+              <div className="space-y-3">
+                {subjects.map((subject, index) => (
+                  <div key={index} className="grid grid-cols-1 md:grid-cols-4 gap-3 items-center border p-3 rounded">
+                    <div className="font-medium">{subject.name}</div>
+                    
+                    <select
+                      value={subject.hasLab}
+                      onChange={(e) => updateSubject(index, 'hasLab', e.target.value)}
+                      className="border rounded p-2"
+                    >
+                      <option value={true}>Has Lab</option>
+                      <option value={false}>No Lab</option>
+                    </select>
+                    
+                    <div className="text-sm text-gray-600">
+                      {subject.hasLab ? "2 lab sessions/week" : "Theory only"}
+                    </div>
+                    
+                    <button
+                      onClick={() => removeSubject(index)}
+                      className="bg-red-500 text-white px-3 py-2 rounded hover:bg-red-600 text-sm"
+                    >
+                      Remove
+                    </button>
                   </div>
-                  
-                  <button
-                    onClick={() => removeSubject(index)}
-                    className="bg-red-500 text-white px-3 py-2 rounded hover:bg-red-600 text-sm"
-                  >
-                    Remove
-                  </button>
-                </div>
-              ))}
-            </div>
+                ))}
+              </div>
+            )}
           </div>
 
           <button
             onClick={generateTimetable}
             className="w-full bg-blue-600 text-white py-3 rounded-lg hover:bg-blue-700 font-semibold text-lg"
           >
-            Generate ZERO-CONFLICT Timetable
+            Generate Timetable
           </button>
         </div>
 
@@ -554,10 +684,10 @@ const Coordinator = () => {
         {timetableData.length > 0 && (
           <div className="bg-white rounded-xl shadow-lg p-6">
             <div className="flex justify-between items-center mb-6">
-              <h2 className="text-2xl font-bold">MCA 1st Year Timetable</h2>
+              <h2 className="text-2xl font-bold">Generated Timetable</h2>
               <div className="space-x-2">
                 <button
-                  onClick={() => detectConflicts()}
+                  onClick={handleManualConflictCheck}
                   className="bg-orange-500 text-white px-4 py-2 rounded hover:bg-orange-600"
                 >
                   Check Conflicts
@@ -582,14 +712,23 @@ const Coordinator = () => {
                 <h4 className="font-semibold text-red-700 mb-2">⚠️ Scheduling Conflicts Found:</h4>
                 {conflicts.map((conflict, index) => (
                   <div key={index} className="text-sm text-red-600 mb-1">
-                    <strong>{getFacultyDisplayName(conflict.teacher)}</strong> has double booking on {conflict.day} at {conflict.time} 
-                    (Sections: {conflict.section1} and {conflict.section2})
+                    {conflict.type === 'TEACHER_CONFLICT' ? (
+                      <>
+                        <strong>{getFacultyDisplayName(conflict.teacher)}</strong> has double booking on {conflict.day} at {conflict.time} 
+                        (Sections: {conflict.section1} and {conflict.section2})
+                      </>
+                    ) : (
+                      <>
+                        <strong>Room {conflict.room}</strong> has double booking on {conflict.day} at {conflict.time} 
+                        (Sections: {conflict.section1} and {conflict.section2})
+                      </>
+                    )}
                   </div>
                 ))}
               </div>
             ) : (
               <div className="mb-6 p-4 bg-green-50 border border-green-200 rounded">
-                <span className="text-green-700 font-medium">✅ ZERO CONFLICTS - Perfect Schedule!</span>
+                <span className="text-green-700 font-medium">✅ No scheduling conflicts found!</span>
               </div>
             )}
 

@@ -78,12 +78,10 @@ const Coordinator = () => {
       const periodEnd = currentTime + periodDuration;
       if (periodEnd > endTimeMinutes) break;
 
-      // Last 2 periods for labs
-      const isLabPeriod = slots.filter(s => s.type === 'theory').length >= 3;
-      
+      // All periods are now generic - lab allocation will be determined by subject
       slots.push({
         time: `${periodStart} - ${formatTime(periodEnd)}`,
-        type: isLabPeriod ? 'lab' : 'theory'
+        type: 'generic' // Changed from theory/lab to generic
       });
 
       currentTime = periodEnd;
@@ -220,7 +218,7 @@ const Coordinator = () => {
     return faculty && faculty.name ? faculty.name : facultyId;
   };
 
-  // ZERO-CONFLICT Timetable Generation with Room Conflict Prevention
+  // IMPROVED Timetable Generation with Smart Lab Allocation
   const generateTimetable = () => {
     // Validation
     if (subjects.length === 0) {
@@ -267,6 +265,17 @@ const Coordinator = () => {
       });
     });
 
+    // Track lab sessions per subject per section
+    const labSessionsTracker = {};
+    sections.forEach(section => {
+      labSessionsTracker[section] = {};
+      subjects.forEach(subject => {
+        if (subject.hasLab) {
+          labSessionsTracker[section][subject.name] = 0; // Track lab sessions per subject per section
+        }
+      });
+    });
+
     days.forEach((day, dayIndex) => {
       const daySchedule = { day, slots: [] };
 
@@ -284,7 +293,7 @@ const Coordinator = () => {
         };
 
         sections.forEach(section => {
-          let subject, teacher, room;
+          let subject, teacher, room, isLabSession = false;
 
           if (timeSlot.type === 'break') {
             subject = 'BREAK';
@@ -305,34 +314,50 @@ const Coordinator = () => {
               const subjectIndex = (dayIndex + slotIndex + sections.indexOf(section)) % subjects.length;
               const selectedSubject = subjects[subjectIndex];
               
-              subject = timeSlot.type === 'lab' && selectedSubject.hasLab 
-                ? `${selectedSubject.name} Lab` 
-                : selectedSubject.name;
-              
-              teacher = selectedTeacher.id;
-              
-              // FIXED: Smart room assignment with proper conflict prevention
-              if (timeSlot.type === 'lab') {
-                // Get available lab rooms for this time slot
-                if (availableRoomsForThisSlot.lab.length > 0) {
-                  // Use first available lab room
-                  room = availableRoomsForThisSlot.lab[0];
-                  // Remove assigned room from availability for this time slot
-                  availableRoomsForThisSlot.lab.shift();
+              // DECIDE IF THIS SHOULD BE A LAB SESSION
+              // Check if this subject has lab and if we need to allocate a lab session
+              if (selectedSubject.hasLab) {
+                const labSessionsSoFar = labSessionsTracker[section][selectedSubject.name] || 0;
+                // Allocate lab session if we haven't reached the required lab sessions (2 per week)
+                // Use some randomness to distribute labs throughout the week
+                const shouldAllocateLab = labSessionsSoFar < 2 && 
+                  Math.random() > 0.5 && // Random factor to distribute labs
+                  availableRoomsForThisSlot.lab.length > 0; // Only if lab rooms available
+                
+                if (shouldAllocateLab) {
+                  isLabSession = true;
+                  subject = `${selectedSubject.name} Lab`;
+                  labSessionsTracker[section][selectedSubject.name] = labSessionsSoFar + 1;
+                  
+                  // Assign lab room
+                  if (availableRoomsForThisSlot.lab.length > 0) {
+                    room = availableRoomsForThisSlot.lab[0];
+                    availableRoomsForThisSlot.lab.shift();
+                  } else {
+                    room = 'NO LAB AVAILABLE';
+                  }
                 } else {
-                  room = 'NO ROOM AVAILABLE';
+                  // Theory session for lab subject
+                  subject = selectedSubject.name;
+                  if (availableRoomsForThisSlot.theory.length > 0) {
+                    room = availableRoomsForThisSlot.theory[0];
+                    availableRoomsForThisSlot.theory.shift();
+                  } else {
+                    room = 'NO ROOM AVAILABLE';
+                  }
                 }
               } else {
-                // Theory class - get available theory rooms
+                // Theory-only subject
+                subject = selectedSubject.name;
                 if (availableRoomsForThisSlot.theory.length > 0) {
-                  // Use first available theory room
                   room = availableRoomsForThisSlot.theory[0];
-                  // Remove assigned room from availability for this time slot
                   availableRoomsForThisSlot.theory.shift();
                 } else {
                   room = 'NO ROOM AVAILABLE';
                 }
               }
+
+              teacher = selectedTeacher.id;
 
               // Update tracking
               teacherAvailability[teacher][day][timeSlot.time] = false;
@@ -343,21 +368,21 @@ const Coordinator = () => {
               teacher = '';
               
               // Still assign a room for FREE periods to maintain structure
-              if (timeSlot.type === 'lab') {
-                room = availableRoomsForThisSlot.lab.length > 0 ? availableRoomsForThisSlot.lab[0] : 'NO ROOM';
-                if (availableRoomsForThisSlot.lab.length > 0) {
-                  availableRoomsForThisSlot.lab.shift();
-                }
+              if (availableRoomsForThisSlot.theory.length > 0) {
+                room = availableRoomsForThisSlot.theory[0];
+                availableRoomsForThisSlot.theory.shift();
               } else {
-                room = availableRoomsForThisSlot.theory.length > 0 ? availableRoomsForThisSlot.theory[0] : 'NO ROOM';
-                if (availableRoomsForThisSlot.theory.length > 0) {
-                  availableRoomsForThisSlot.theory.shift();
-                }
+                room = 'NO ROOM';
               }
             }
           }
 
-          slot.sections[section] = { subject, teacher, room };
+          slot.sections[section] = { 
+            subject, 
+            teacher, 
+            room,
+            type: isLabSession ? 'lab' : 'theory' // Track session type for display
+          };
         });
 
         daySchedule.slots.push(slot);
@@ -379,7 +404,7 @@ const Coordinator = () => {
               room: classInfo.room,
               subject: classInfo.subject,
               teacher: classInfo.teacher,
-              type: slot.type
+              type: classInfo.type // Use the actual type from generation
             });
           }
         });
@@ -444,7 +469,7 @@ const Coordinator = () => {
           <div className="flex justify-between items-center">
             <div>
               <h1 className="text-3xl font-bold text-gray-800">Timetable Generator</h1>
-              <p className="text-gray-600 mt-2">Simplified Room & Lab Management</p>
+              <p className="text-gray-600 mt-2">Smart Lab Allocation System</p>
             </div>
             <button
               onClick={() => navigate("/")}
@@ -747,7 +772,10 @@ const Coordinator = () => {
                           {sections.map(section => (
                             <td key={section} className="border border-gray-300 p-3">
                               <div className="text-center">
-                                <div className="font-medium">{slot.sections[section].subject}</div>
+                                <div className={`font-medium ${slot.sections[section].type === 'lab' ? 'text-green-700' : ''}`}>
+                                  {slot.sections[section].subject}
+                                  {slot.sections[section].type === 'lab' && ' '}
+                                </div>
                                 {slot.sections[section].teacher && (
                                   <div className="text-sm text-gray-600">
                                     ({getFacultyDisplayName(slot.sections[section].teacher)})

@@ -1,6 +1,8 @@
 import React, { useState } from "react";
 import { useNavigate } from "react-router-dom";
 
+import TimetableDownload from './TimetableDownload';
+
 const Coordinator = () => {
   const navigate = useNavigate();
   
@@ -707,9 +709,15 @@ const Coordinator = () => {
                 >
                   Check Conflicts
                 </button>
-                <button className="bg-green-600 text-white px-4 py-2 rounded hover:bg-green-700">
+                <TimetableDownload 
+  timetableData={timetableData}
+  sections={sections}
+  timingSettings={timingSettings}
+  facultyList={facultyList}
+/>
+                {/* <button className="bg-green-600 text-white px-4 py-2 rounded hover:bg-green-700">
                   Download Timetable
-                </button>
+                </button> */}
               </div>
             </div>
 

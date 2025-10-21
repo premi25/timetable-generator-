@@ -147,17 +147,31 @@ const Coordinator = () => {
 
   // Add new theory room
   const addNewTheoryRoom = () => {
-    if (newTheoryRoom.trim() && !theoryRooms.includes(newTheoryRoom.trim())) {
-      setTheoryRooms([...theoryRooms, newTheoryRoom.trim()]);
-      setNewTheoryRoom("");
+    if (newTheoryRoom.trim()) {
+      // Split by comma and trim each room name
+      const roomsToAdd = newTheoryRoom.split(',')
+        .map(room => room.trim())
+        .filter(room => room && !theoryRooms.includes(room));
+      
+      if (roomsToAdd.length > 0) {
+        setTheoryRooms([...theoryRooms, ...roomsToAdd]);
+        setNewTheoryRoom("");
+      }
     }
   };
 
   // Add new lab room
   const addNewLabRoom = () => {
-    if (newLabRoom.trim() && !labRooms.includes(newLabRoom.trim())) {
-      setLabRooms([...labRooms, newLabRoom.trim()]);
-      setNewLabRoom("");
+    if (newLabRoom.trim()) {
+      // Split by comma and trim each room name
+      const roomsToAdd = newLabRoom.split(',')
+        .map(room => room.trim())
+        .filter(room => room && !labRooms.includes(room));
+      
+      if (roomsToAdd.length > 0) {
+        setLabRooms([...labRooms, ...roomsToAdd]);
+        setNewLabRoom("");
+      }
     }
   };
 
@@ -253,18 +267,6 @@ const Coordinator = () => {
       });
     });
 
-    // Track room availability - NEW: Prevent room conflicts
-    const roomAvailability = {};
-    days.forEach(day => {
-      roomAvailability[day] = {};
-      timeSlots.forEach(slot => {
-        roomAvailability[day][slot.time] = {
-          theory: [...theoryRooms], // Available theory rooms for this time slot
-          lab: [...labRooms]        // Available lab rooms for this time slot
-        };
-      });
-    });
-
     days.forEach((day, dayIndex) => {
       const daySchedule = { day, slots: [] };
 
@@ -273,6 +275,12 @@ const Coordinator = () => {
           time: timeSlot.time, 
           type: timeSlot.type,
           sections: {} 
+        };
+
+        // Create fresh room availability for this specific time slot
+        const availableRoomsForThisSlot = {
+          theory: [...theoryRooms],
+          lab: [...labRooms]
         };
 
         sections.forEach(section => {
@@ -303,42 +311,26 @@ const Coordinator = () => {
               
               teacher = selectedTeacher.id;
               
-              // NEW: Smart room assignment with conflict prevention
+              // FIXED: Smart room assignment with proper conflict prevention
               if (timeSlot.type === 'lab') {
                 // Get available lab rooms for this time slot
-                const availableLabRooms = roomAvailability[day][timeSlot.time].lab;
-                if (availableLabRooms.length > 0) {
-                  // Use round-robin to distribute lab rooms
-                  room = availableLabRooms[sections.indexOf(section) % availableLabRooms.length];
+                if (availableRoomsForThisSlot.lab.length > 0) {
+                  // Use first available lab room
+                  room = availableRoomsForThisSlot.lab[0];
                   // Remove assigned room from availability for this time slot
-                  roomAvailability[day][timeSlot.time].lab = availableLabRooms.filter(r => r !== room);
+                  availableRoomsForThisSlot.lab.shift();
                 } else {
-                  // No lab rooms available - use theory room as fallback
-                  const availableTheoryRooms = roomAvailability[day][timeSlot.time].theory;
-                  room = availableTheoryRooms.length > 0 
-                    ? availableTheoryRooms[0] 
-                    : 'NO ROOM AVAILABLE';
-                  if (availableTheoryRooms.length > 0) {
-                    roomAvailability[day][timeSlot.time].theory = availableTheoryRooms.filter(r => r !== room);
-                  }
+                  room = 'NO ROOM AVAILABLE';
                 }
               } else {
                 // Theory class - get available theory rooms
-                const availableTheoryRooms = roomAvailability[day][timeSlot.time].theory;
-                if (availableTheoryRooms.length > 0) {
-                  // Use round-robin to distribute theory rooms
-                  room = availableTheoryRooms[sections.indexOf(section) % availableTheoryRooms.length];
+                if (availableRoomsForThisSlot.theory.length > 0) {
+                  // Use first available theory room
+                  room = availableRoomsForThisSlot.theory[0];
                   // Remove assigned room from availability for this time slot
-                  roomAvailability[day][timeSlot.time].theory = availableTheoryRooms.filter(r => r !== room);
+                  availableRoomsForThisSlot.theory.shift();
                 } else {
-                  // No theory rooms available - use lab room as fallback
-                  const availableLabRooms = roomAvailability[day][timeSlot.time].lab;
-                  room = availableLabRooms.length > 0 
-                    ? availableLabRooms[0] 
-                    : 'NO ROOM AVAILABLE';
-                  if (availableLabRooms.length > 0) {
-                    roomAvailability[day][timeSlot.time].lab = availableLabRooms.filter(r => r !== room);
-                  }
+                  room = 'NO ROOM AVAILABLE';
                 }
               }
 
@@ -352,16 +344,14 @@ const Coordinator = () => {
               
               // Still assign a room for FREE periods to maintain structure
               if (timeSlot.type === 'lab') {
-                const availableLabRooms = roomAvailability[day][timeSlot.time].lab;
-                room = availableLabRooms.length > 0 ? availableLabRooms[0] : 'NO ROOM';
-                if (availableLabRooms.length > 0) {
-                  roomAvailability[day][timeSlot.time].lab = availableLabRooms.filter(r => r !== room);
+                room = availableRoomsForThisSlot.lab.length > 0 ? availableRoomsForThisSlot.lab[0] : 'NO ROOM';
+                if (availableRoomsForThisSlot.lab.length > 0) {
+                  availableRoomsForThisSlot.lab.shift();
                 }
               } else {
-                const availableTheoryRooms = roomAvailability[day][timeSlot.time].theory;
-                room = availableTheoryRooms.length > 0 ? availableTheoryRooms[0] : 'NO ROOM';
-                if (availableTheoryRooms.length > 0) {
-                  roomAvailability[day][timeSlot.time].theory = availableTheoryRooms.filter(r => r !== room);
+                room = availableRoomsForThisSlot.theory.length > 0 ? availableRoomsForThisSlot.theory[0] : 'NO ROOM';
+                if (availableRoomsForThisSlot.theory.length > 0) {
+                  availableRoomsForThisSlot.theory.shift();
                 }
               }
             }
@@ -510,20 +500,20 @@ const Coordinator = () => {
             {/* Theory Rooms Section */}
             <div className="mb-4 p-4 bg-blue-50 rounded-lg">
               <h4 className="font-semibold mb-3 text-blue-800">🏫 Theory Classrooms</h4>
-              <p className="text-sm text-blue-600 mb-3">Add regular classrooms for theory classes</p>
+              <p className="text-sm text-blue-600 mb-3">Add theory rooms (comma separated for multiple rooms)</p>
               <div className="flex gap-2 mb-3">
                 <input
                   type="text"
                   value={newTheoryRoom}
                   onChange={(e) => setNewTheoryRoom(e.target.value)}
                   className="flex-1 border border-gray-300 rounded-lg p-3"
-                  placeholder="Enter theory room (e.g., Room 101)"
+                  placeholder="Enter theory rooms (e.g., Room101, Room102, Room103)"
                 />
                 <button
                   onClick={addNewTheoryRoom}
                   className="bg-blue-500 text-white px-4 py-2 rounded-lg hover:bg-blue-600"
                 >
-                  Add
+                  Add Rooms
                 </button>
               </div>
               <div className="flex flex-wrap gap-2">
@@ -547,20 +537,20 @@ const Coordinator = () => {
             {/* Lab Rooms Section */}
             <div className="p-4 bg-green-50 rounded-lg">
               <h4 className="font-semibold mb-3 text-green-800">🔬 Lab Rooms</h4>
-              <p className="text-sm text-green-600 mb-3">Add laboratory rooms for practical classes</p>
+              <p className="text-sm text-green-600 mb-3">Add lab rooms (comma separated for multiple rooms)</p>
               <div className="flex gap-2 mb-3">
                 <input
                   type="text"
                   value={newLabRoom}
                   onChange={(e) => setNewLabRoom(e.target.value)}
                   className="flex-1 border border-gray-300 rounded-lg p-3"
-                  placeholder="Enter lab room (e.g., Lab 201)"
+                  placeholder="Enter lab rooms (e.g., Lab201, Lab202, Lab203)"
                 />
                 <button
                   onClick={addNewLabRoom}
                   className="bg-green-500 text-white px-4 py-2 rounded-lg hover:bg-green-600"
                 >
-                  Add
+                  Add Rooms
                 </button>
               </div>
               <div className="flex flex-wrap gap-2">
